@@ -1,0 +1,1330 @@
+openapi: 3.0.2
+info:
+  description: |
+    Interactive documentation for [Funkwhale](https://funkwhale.audio) API.
+
+    The API is **not** freezed yet, but we will document breaking changes in our changelog,
+    and try to avoid those as much as possible.
+
+    Usage
+    -----
+
+    Click on an endpoint name to inspect its properties, parameters and responses.
+
+    Use the "Try it out" button to send a real world payload to the endpoint and inspect
+    the corresponding response.
+
+    Authentication
+    --------------
+
+    To authenticate, use the `/token/` endpoint with a username and password, and copy/paste
+    the resulting JWT token in the `Authorize` modal. All subsequent requests made via the interactive
+    documentation will be authenticated.
+
+    If you keep the default server (https://demo.funkwhale.audio), the default username and password
+    couple is "demo" and "demo".
+
+    Rate limiting
+    -------------
+
+    Depending on server configuration, pods running Funkwhale 0.20 and higher may rate-limit incoming
+    requests to prevent abuse and improve the stability of service. Requests that are dropped because of rate-limiting
+    receive a 429 HTTP response.
+
+    The limits themselves vary depending on:
+
+    - The client: anonymous requests are subject to lower limits than authenticated requests
+    - The operation being performed: Write and delete operations, as performed with DELETE, POST, PUT and PATCH HTTP methods are subject to lower limits
+
+    Those conditions are used to determine the scope of the request, which in turns determine the limit that is applied.
+    For instance, authenticated POST requests are bound to the `authenticated-create` scope, with a default limit of
+    1000 requests/hour, but anonymous POST requests are bound to the `anonymous-create` scope, with a lower limit of 1000 requests/day.
+
+    A full list of scopes with their corresponding description, and the current usage data for the client performing the request
+    is available via the `/api/v1/rate-limit` endpoint.
+
+    Additionally, we include HTTP headers on all API response to ensure API clients can understand:
+
+    - what scope was bound to a given request
+    - what is the corresponding limit
+    - how much similar requests can be sent before being limited
+    - and how much time they should wait if they have been limited
+
+    <table>
+      <caption>Rate limiting headers</caption>
+      <thead>
+        <th>Header</th>
+        <th>Example value</th>
+        <th>Description value</th>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>X-RateLimit-Limit</code></td>
+          <td>50</td>
+          <td>The number of allowed requests whithin a given period</td>
+        </tr>
+        <tr>
+          <td><code>X-RateLimit-Duration</code></td>
+          <td>3600</td>
+          <td>The time window, in seconds, during which those requests are accounted for.</td>
+        </tr>
+        <tr>
+          <td><code>X-RateLimit-Scope</code></td>
+          <td>login</td>
+          <td>The name of the scope as computed for the request</td>
+        </tr>
+        <tr>
+          <td><code>X-RateLimit-Remaining</code></td>
+          <td>42</td>
+          <td>How many requests can be sent with the same scope before the limit applies</td>
+        </tr>
+        <tr>
+          <td><code>Retry-After</code> (if <code>X-RateLimit-Remaining</code> is 0)</td>
+          <td>3543</td>
+          <td>How many seconds to wait before a retry</td>
+        </tr>
+        <tr>
+          <td><code>X-RateLimit-Reset</code></td>
+          <td>1568126089</td>
+          <td>A timestamp indicating when <code>X-RateLimit-Remaining</code> will return to its higher possible value</td>
+        </tr>
+        <tr>
+          <td><code>X-RateLimit-ResetSeconds</code></td>
+          <td>3599</td>
+          <td>How many seconds to wait before <code>X-RateLimit-Remaining</code> returns to its higher possible value</td>
+        </tr>
+      </tbody>
+    </table>
+
+
+    Resources
+    ---------
+
+    For more targeted guides regarding API usage, and especially authentication, please
+    refer to [https://docs.funkwhale.audio/api.html](https://docs.funkwhale.audio/api.html)
+  title: Funkwhale API
+  version: 1.0.0
+servers:
+- description: Demo server
+  url: https://demo.funkwhale.audio
+- description: Custom server
+  url: https://{domain}
+  variables:
+    domain:
+      default: yourdomain
+      description: Your Funkwhale Domain
+    protocol:
+      default: https
+      enum:
+      - http
+      - https
+security:
+- jwt: []
+- oauth2: []
+tags:
+- description: Login, logout, rate-limit and authorization endpoints
+  name: Auth and security
+- description: Information and metadata about musical and audio entities (albums,
+    tracks, artists, etc.)
+  name: Library and metadata
+- description: Manipulation and uploading of audio files
+  externalDocs:
+    url: https://docs.funkwhale.audio/users/managing.html
+  name: Uploads and audio content
+- description: Favorites, playlists, radios
+  name: Content curation
+- description: Other endpoints that don't fit in the categories above
+  name: Other
+paths:
+  /api/v1/oauth/apps/:
+    post:
+      description: Register an OAuth application
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object'
+        content:
+          application/json:
+            schema:
+              properties:
+                name:
+                  example: My Awesome Funkwhale Client
+                  type: string
+                redirect_uris:
+                  example: https://myapp/oauth2/funkwhale
+                  type: string
+                scopes:
+                  example: read write:playlists write:favorites
+                  type: string
+              type: object
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/OAuthApplication'
+                - $ref: '#/definitions/OAuthApplicationCreation'
+      security: []
+      tags:
+      - Auth and security
+  /api/v1/token/:
+    post:
+      description: Obtain a JWT token you can use for authenticating your next requests.
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_1'
+        content:
+          application/json:
+            schema:
+              properties:
+                username:
+                  example: demo
+                  type: string
+                password:
+                  example: demo
+                  type: string
+              type: object
+        required: true
+      responses:
+        "200":
+          description: Successfull auth
+        "400":
+          description: Invalid credentials
+      security: []
+      summary: Get an API token
+      tags:
+      - Auth and security
+  /api/v1/auth/registration/:
+    post:
+      description: |
+        Register a new account on this instance. An invitation code will be required
+        if sign up is disabled.
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_2'
+        content:
+          application/json:
+            schema:
+              properties:
+                username:
+                  example: alice
+                  type: string
+                email:
+                  format: email
+                  type: string
+                invitation:
+                  description: An invitation code, required if signups are closed
+                    on the instance.
+                  example: INVITECODE
+                  type: string
+                password1:
+                  example: passw0rd
+                  type: string
+                password2:
+                  description: Must be identical to password1
+                  example: passw0rd
+                  type: string
+              type: object
+        required: true
+      responses:
+        "201":
+          $ref: '#/responses/201'
+      summary: Create an account
+      tags:
+      - Auth and security
+  /api/v1/auth/password/reset/:
+    post:
+      description: |
+        Request a password reset. An email with reset instructions will be sent to the provided email,
+        if it's associated with a user account.
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_3'
+        content:
+          application/json:
+            schema:
+              properties:
+                email:
+                  format: email
+                  type: string
+              type: object
+        required: true
+      responses:
+        "200":
+          $ref: '#/responses/200'
+      summary: Request a password reset
+      tags:
+      - Auth and security
+  /api/v1/users/users/me/:
+    get:
+      description: |
+        Retrieve profile informations of the current user
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Me'
+      summary: Retrive profile information
+      tags:
+      - Auth and security
+  /api/v1/rate-limit/:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/RateLimitStatus'
+      summary: Retrive rate-limit information and current usage status
+      tags:
+      - Auth and security
+  /api/v1/artists/:
+    get:
+      parameters:
+      - description: Search query used to filter artists
+        explode: true
+        in: query
+        name: q
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/Artist'
+                      type: array
+                  type: object
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List artists
+      tags:
+      - Library and metadata
+  /api/v1/artists/{id}/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Artist'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: Retrieve a single artist
+      tags:
+      - Library and metadata
+  /api/v1/artists/{id}/libraries/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/LibraryPage'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List available user libraries containing work from this artist
+      tags:
+      - Library and metadata
+  /api/v1/albums/:
+    get:
+      parameters:
+      - description: Search query used to filter albums
+        explode: true
+        in: query
+        name: q
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Only include albums by the requested artist
+        explode: true
+        in: query
+        name: artist
+        required: false
+        schema:
+          format: int64
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/Album'
+                      type: array
+                  type: object
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List albums
+      tags:
+      - Library and metadata
+  /api/v1/albums/{id}/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Album'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: Retrieve a single album
+      tags:
+      - Library and metadata
+  /api/v1/albums/{id}/libraries/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/LibraryPage'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List available user libraries containing tracks from this album
+      tags:
+      - Library and metadata
+  /api/v1/tracks/:
+    get:
+      parameters:
+      - description: Search query used to filter tracks
+        explode: true
+        in: query
+        name: q
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Only include tracks by the requested artist
+        explode: true
+        in: query
+        name: artist
+        required: false
+        schema:
+          format: int64
+          type: integer
+        style: form
+      - description: filter/exclude tracks favorited by the current user
+        explode: true
+        in: query
+        name: favorites
+        required: false
+        schema:
+          type: boolean
+        style: form
+      - description: Only include tracks from the requested album
+        explode: true
+        in: query
+        name: album
+        required: false
+        schema:
+          format: int64
+          type: integer
+        style: form
+      - description: Only include tracks with the given license
+        explode: true
+        in: query
+        name: license
+        required: false
+        schema:
+          example: cc-by-sa-4.0
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/Track'
+                      type: array
+                  type: object
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List tracks
+      tags:
+      - Library and metadata
+  /api/v1/tracks/{id}/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Track'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: Retrieve a single track
+      tags:
+      - Library and metadata
+  /api/v1/tracks/{id}/libraries/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/LibraryPage'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List available user libraries containing given track
+      tags:
+      - Library and metadata
+  /api/v1/listen/{uuid}/:
+    get:
+      description: |
+        Given a track uuid (and not ID), return the first found audio file
+        accessible by the user making the request.
+
+        In case of a remote upload, this endpoint will fetch the audio file from the remote
+        and cache it before sending the response.
+      parameters:
+      - description: Track uuid
+        explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      - description: |
+          If specified, the endpoint will return a transcoded version of the original
+          audio file.
+
+          Since transcoding happens on the fly, it can significantly increase response time,
+          and it's recommended to request transcoding only for files that are not playable
+          by the client.
+
+          This endpoint support bytess-range requests.
+        explode: true
+        in: query
+        name: to
+        required: false
+        schema:
+          $ref: '#/properties/transcode_options'
+        style: form
+      - description: |
+          If specified, will return the audio for the given upload uuid.
+
+          This is useful for tracks that have multiple uploads available.
+        explode: true
+        in: query
+        name: upload
+        required: false
+        schema:
+          format: uuid
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            '*/*':
+              schema:
+                format: binary
+                type: string
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      summary: Download the audio file matching the given track uuid
+      tags:
+      - Library and metadata
+  /api/v1/licenses/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/License'
+                      type: array
+                  type: object
+      security:
+      - oauth2:
+        - read:libraries
+      summary: List licenses
+      tags:
+      - Library and metadata
+  /api/v1/licenses/{code}/:
+    get:
+      parameters:
+      - description: License code
+        explode: false
+        in: path
+        name: code
+        required: true
+        schema:
+          example: cc0-1.0
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/License'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/ResourceNotFound'
+      security:
+      - oauth2:
+        - read:libraries
+      summary: Retrieve a single license
+      tags:
+      - Library and metadata
+  /api/v1/libraries/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/OwnedLibrary'
+                      type: array
+                  type: object
+      summary: List owned libraries
+      tags:
+      - Uploads and audio content
+    post:
+      description: Create a new library
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/OwnedLibraryCreate'
+        required: true
+      responses:
+        "201":
+          $ref: '#/responses/201'
+        "400":
+          $ref: '#/responses/400'
+      tags:
+      - Uploads and audio content
+  /api/v1/libraries/{uuid}/:
+    delete:
+      description: |
+        This will delete the library, all associated uploads, follows, and broadcast
+        the event on the federation.
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "204":
+          $ref: '#/responses/204'
+      summary: Delete a library and all associated uploads
+      tags:
+      - Uploads and audio content
+    get:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/OwnedLibrary'
+      summary: Retrieve a library
+      tags:
+      - Uploads and audio content
+    post:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/OwnedLibraryCreate'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/OwnedLibrary'
+      summary: Update a library
+      tags:
+      - Uploads and audio content
+  /api/v1/channels/:
+    get:
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/Channel'
+                      type: array
+                  type: object
+      summary: List channels
+      tags:
+      - Uploads and audio content
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/ChannelCreate'
+        required: true
+      responses:
+        "201":
+          $ref: '#/responses/201'
+        "400":
+          $ref: '#/responses/400'
+      summary: Create a new channel
+      tags:
+      - Uploads and audio content
+  /api/v1/channels/{uuid}/:
+    delete:
+      description: |
+        This will delete the channel, all associated uploads, follows, and broadcast
+        the event on the federation.
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "204":
+          $ref: '#/responses/204'
+      summary: Delete a channel and all associated uploads
+      tags:
+      - Uploads and audio content
+    get:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Channel'
+      summary: Retrieve a channel
+      tags:
+      - Uploads and audio content
+    post:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/ChannelUpdate'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Channel'
+      summary: Update a channel
+      tags:
+      - Uploads and audio content
+  /api/v1/uploads/:
+    get:
+      parameters:
+      - description: Search query used to filter uploads
+        explode: true
+        in: query
+        name: q
+        required: false
+        schema:
+          example: Dire straits
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/OwnedUpload'
+                      type: array
+                  type: object
+      summary: List owned uploads
+      tags:
+      - Uploads and audio content
+    post:
+      description: Upload a new file in a library. The event will be broadcasted on
+        federation, according to the library visibility and followers.
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_4'
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                library:
+                  description: The library in which the audio should be stored
+                  format: uuid
+                  type: string
+                import_reference:
+                  example: Import launched via API client on 04/19
+                  type: string
+                source:
+                  example: upload://filename.mp3
+                  type: string
+                audio_file:
+                  format: binary
+                  type: string
+                import_status:
+                  default: pending
+                  description: Setting import_status to draft will prevent processing,
+                    but allow further modifications to audio and metadata. Once ready,
+                    use the PATCH method to set import_status to pending. Default
+                    to `pending` if unspecified.
+                  enum:
+                  - draft
+                  - pending
+                  type: string
+                import_metadata:
+                  $ref: '#/definitions/ImportMetadata'
+              type: object
+        required: true
+      responses:
+        "201":
+          $ref: '#/responses/201'
+        "400":
+          $ref: '#/responses/400'
+      tags:
+      - Uploads and audio content
+  /api/v1/uploads/{uuid}/:
+    delete:
+      description: |
+        This will delete the upload from the server and broadcast the event
+        on the federation.
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "204":
+          $ref: '#/responses/204'
+      summary: Delete an upload
+      tags:
+      - Uploads and audio content
+    get:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/OwnedUpload'
+      summary: Retrieve an upload
+      tags:
+      - Uploads and audio content
+    patch:
+      description: |
+        This will update a draft upload, before it is processed.
+
+        All fields supported for `POST /api/v1/uploads` can be updated here.
+
+        Setting `import_status` to `pending` will trigger processing, and make future
+        modifications impossible.
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/OwnedUpload'
+      summary: Update a draft upload
+      tags:
+      - Uploads and audio content
+  /api/v1/uploads/{uuid}/audio-file-metadata:
+    get:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+      summary: Retrieve the tags embedded in the audio file
+      tags:
+      - Uploads and audio content
+  /api/v1/favorites/tracks/:
+    get:
+      parameters:
+      - description: Search query used to filter favorites
+        explode: true
+        in: query
+        name: q
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Limit results to favorites belonging to the given user
+        explode: true
+        in: query
+        name: user
+        required: false
+        schema:
+          $ref: '#/parameters/ObjectId'
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/definitions/ResultPage'
+                - properties:
+                    results:
+                      items:
+                        $ref: '#/definitions/TrackFavorite'
+                      type: array
+                  type: object
+      tags:
+      - Content curation
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_5'
+        content:
+          application/json:
+            schema:
+              properties:
+                track:
+                  example: 98
+                  format: int64
+                  type: integer
+              type: object
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_201'
+      summary: Mark the given track as favorite
+      tags:
+      - Content curation
+  /api/v1/favorites/tracks/remove/:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_6'
+        content:
+          application/json:
+            schema:
+              properties:
+                track:
+                  example: 98
+                  format: int64
+                  type: integer
+              type: object
+        required: true
+      responses:
+        "204":
+          $ref: '#/responses/204'
+      summary: Remove the given track from favorites
+      tags:
+      - Content curation
+  /api/v1/attachments/:
+    post:
+      description: Upload a new file as an attachment that can be later associated
+        with other objects.
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_7'
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                file:
+                  format: binary
+                  type: string
+              type: object
+        required: true
+      responses:
+        "201":
+          $ref: '#/responses/201'
+        "400":
+          $ref: '#/responses/400'
+      tags:
+      - Other
+  /api/v1/attachments/{uuid}/:
+    delete:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "204":
+          $ref: '#/responses/204'
+      summary: Delete an attachment
+      tags:
+      - Other
+    get:
+      parameters:
+      - explode: false
+        in: path
+        name: uuid
+        required: true
+        schema:
+          format: uuid
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/definitions/Attachment'
+      summary: Retrieve an attachment
+      tags:
+      - Other
+components:
+  requestBodies:
+    inline_object_1:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_1'
+      required: true
+    inline_object:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object'
+      required: true
+    inline_object_7:
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '#/components/schemas/inline_object_7'
+      required: true
+    inline_object_6:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_6'
+      required: true
+    inline_object_5:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_5'
+      required: true
+    inline_object_4:
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '#/components/schemas/inline_object_4'
+      required: true
+    inline_object_3:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_3'
+      required: true
+    inline_object_2:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_2'
+      required: true
+  schemas:
+    inline_object_1:
+      properties:
+        username:
+          example: demo
+          type: string
+        password:
+          example: demo
+          type: string
+      type: object
+    inline_response_201:
+      example:
+        id: 876
+        creation_date: '{}'
+        track: 98
+      properties:
+        id:
+          example: 876
+          format: int64
+          type: integer
+        track:
+          example: 98
+          format: int64
+          type: integer
+        creation_date:
+          $ref: '#/properties/creation_date'
+    inline_object:
+      properties:
+        name:
+          example: My Awesome Funkwhale Client
+          type: string
+        redirect_uris:
+          example: https://myapp/oauth2/funkwhale
+          type: string
+        scopes:
+          example: read write:playlists write:favorites
+          type: string
+      type: object
+    inline_object_7:
+      properties:
+        file:
+          format: binary
+          type: string
+      type: object
+    inline_object_6:
+      properties:
+        track:
+          example: 98
+          format: int64
+          type: integer
+      type: object
+    inline_object_5:
+      properties:
+        track:
+          example: 98
+          format: int64
+          type: integer
+      type: object
+    inline_object_4:
+      properties:
+        library:
+          description: The library in which the audio should be stored
+          format: uuid
+          type: string
+        import_reference:
+          example: Import launched via API client on 04/19
+          type: string
+        source:
+          example: upload://filename.mp3
+          type: string
+        audio_file:
+          format: binary
+          type: string
+        import_status:
+          default: pending
+          description: Setting import_status to draft will prevent processing, but
+            allow further modifications to audio and metadata. Once ready, use the
+            PATCH method to set import_status to pending. Default to `pending` if
+            unspecified.
+          enum:
+          - draft
+          - pending
+          type: string
+        import_metadata:
+          $ref: '#/definitions/ImportMetadata'
+      type: object
+    inline_object_3:
+      properties:
+        email:
+          format: email
+          type: string
+      type: object
+    inline_object_2:
+      properties:
+        username:
+          example: alice
+          type: string
+        email:
+          format: email
+          type: string
+        invitation:
+          description: An invitation code, required if signups are closed on the instance.
+          example: INVITECODE
+          type: string
+        password1:
+          example: passw0rd
+          type: string
+        password2:
+          description: Must be identical to password1
+          example: passw0rd
+          type: string
+      type: object
+  securitySchemes:
+    oauth2:
+      description: This API uses OAuth 2 with the Authorization Code flow. You can
+        register an app using the /oauth/apps/ endpoint.
+      flows:
+        authorizationCode:
+          authorizationUrl: /authorize
+          refreshUrl: /api/v1/oauth/token/
+          scopes:
+            read: Read-only access to all user data
+            write: Write-only access on all user data
+            read:profile: Read-only access to profile data
+            read:libraries: Read-only access to library and uploads
+            read:playlists: Read-only access to playlists
+            read:listenings: Read-only access to listening history
+            read:favorites: Read-only access to favorites
+            read:radios: Read-only access to radios
+            read:edits: Read-only access to edits
+            read:notifications: Read-only access to notifications
+            read:follows: Read-only to follows
+            read:filters: Read-only to to content filters
+            write:profile: Write-only access to profile data
+            write:libraries: Write-only access to libraries
+            write:playlists: Write-only access to playlists
+            write:follows: Write-only access to follows
+            write:favorites: Write-only access to favorits
+            write:notifications: Write-only access to notifications
+            write:radios: Write-only access to radios
+            write:edits: Write-only access to edits
+            write:filters: Write-only access to content-filters
+            write:listenings: Write-only access to listening history
+          tokenUrl: /api/v1/oauth/token/
+      type: oauth2
+    jwt:
+      bearerFormat: JWT
+      description: You can get a token by using the /token endpoint
+      scheme: bearer
+      type: http
